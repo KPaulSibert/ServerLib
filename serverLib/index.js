@@ -104,5 +104,6 @@ export default {
       return this.isSPA||req.url=='/'?res.end(STATICFILES.get(this.entry)):notFound(res,req.url)
     })
     server.listen(port,host,()=>console.log(`Server ${this.name} is running at http://${host}:${port}/`))
+    return server
   }
 }
