@@ -1,5 +1,6 @@
 import 'regenerator-runtime/runtime'
 import {io} from "socket.io-client"
+import "bootstrap/dist/css/bootstrap.min.css"
 const socket = io('ws://localhost:2020/')
 socket.on('connect', function(data) {
   console.log('connected')

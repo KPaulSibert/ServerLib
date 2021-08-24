@@ -1,4 +1,3 @@
-
 import http from "http"
 import { existsSync,readFileSync,statSync} from "fs"
 export const Cookie = {
@@ -6,13 +5,13 @@ export const Cookie = {
       var list = {},rc = request.headers.cookie;
       rc && rc.split(';').forEach(function( cookie ) {
           var parts = cookie.split('=');
-          list[parts.shift().trim()] = decodeURI(parts.join('='));
+          list[parts.shift().trim()] = decodeURIComponent(parts.join('='));
       });
       return list;
     },
     set(res,cookies,path){
       path = path?`; Path = ${path}`:''
-      res.setHeader('Set-Cookie',Object.entries(cookies).map(([k,v])=>`${k}=${v}`).join('; ')+path);
+      res.setHeader('Set-Cookie',Object.entries(cookies).map(([k,v])=>`${k}=${encodeURIComponent(v)}`).join('; ')+path);
       
     },
     upd(req,res,list={},path){
@@ -35,16 +34,15 @@ export function redirect(res,url){
   console.log(`redirecting: ${url}`)
   res.writeHead(302, {'Location': url});
   res.end(); return true}
-export const STATICFILES = {
-  name:'staticFiles',
-  folder:existsSync('dist')?"dist":"public",
-  mimes:existsSync('serverLib/mimes.json') && JSON.parse(readFileSync('serverLib/mimes.json')),
+export class STATICFILES{
+  folder=existsSync('dist')?"dist":"public"
+  static mimes = existsSync('serverLib/mimes.json') && JSON.parse(readFileSync('serverLib/mimes.json'))
   mimeType(path){
     const ext = path.split('.').pop()
-    if(!this.mimes){console.error('mimes.json is not found')}
-    return this.mimes?.[ext]||'application/octet-stream'
-  },
-  get(path){return readFileSync(`${this.folder}/${path}`)},
+    if(!STATICFILES.mimes){console.error('mimes.json is not found')}
+    return STATICFILES.mimes?.[ext]||'application/octet-stream'
+  }
+  get(path){return readFileSync(`${this.folder}/${path}`)}
   serve(req,res){
     const path = this.folder+req.url
     if(existsSync(path)&&statSync(path).isFile()){
@@ -55,18 +53,16 @@ export const STATICFILES = {
     }
   }
 }
-export const API = {
-  name:'API',
-  methods:{
+export class API{
+  constructor(server,methods){this.methods = methods||API.methods}
+  static methods={
     public:{
       hello({data}){
         return `Hello, ${data.name}`
       }
     }
-  },
-  /**@param {({req:http.IncomingMessage,res:http.ServerResponse})=>void} fn */
-  add(name,fn){this.methods[name]=fn},
-  prefix:"/api",
+  }
+  prefix="/api"
   serve(req,res){
     if(req.url.startsWith(this.prefix)){
       const names = req.url.substr(this.prefix.length+1).split('/')
@@ -76,7 +72,7 @@ export const API = {
         else if(folder[name]){
           getBody(req).then(async d=>{
             const data = JSON.parse(d)
-            console.log(`${this.name}: call ${names.join('/')}`)
+            console.log(`${this.constructor.name}: call ${names.join('/')}`)
             const ret = await folder[name]({req,res,data})
             if(!res.writableEnded){res.end(JSON.stringify(ret))}
           })
@@ -86,24 +82,33 @@ export const API = {
     }
   }
 }
-export default {
-  name:"http-server",
-  host:"localhost",
-  port:2020,
-  entry:"index.html",
-  isSPA:false,
-  services:[API,STATICFILES],
-  run(port=this.port,host=this.host){
+/**@param {(req:http.IncomingMessage,res:http.ServerResponse)=>void} fn */
+export function rh(fn){return fn}
+export default class Server{
+  static reqHandlers = [API,STATICFILES]
+  entry ="index.html"
+  constructor(port=2020,host="localhost",name="http-server",isSPA=false){
+    Object.assign(this,{port,host,isSPA,name})
+    this.reqHandlers = Object.fromEntries(Server.reqHandlers.map(
+      h=>[h.name,typeof h == "function"?new h(this):h]
+      ))
+    Object.values(this.reqHandlers).forEach(h=>h.init?.(this))
+  }
+  addReqHandler(name,rh){this.reqHandlers[name] = rh;rh.init?.(this)}
+  run(){
+    const rhs = this.reqHandlers
     const server = http.createServer(async (req,res)=>{
       console.log(`incoming ${req.method} request: ${req.url} ${req.headers.cookie||""}`)
       //Cookie.upd(req,res,{url:req.url})
-      for(const serv of this.services){
-        console.log(`run ${serv.name||"anonym"} service `)
+      for(const servName in rhs){
+        const serv = rhs[servName]
+        console.log(`run ${servName} service `)
         if(await serv.serve(req,res)) return 
       }
-      return this.isSPA||req.url=='/'?res.end(STATICFILES.get(this.entry)):notFound(res,req.url)
+      const dosendDef = rhs["STATICFILES"]&&(this.isSPA||req.url=='/')
+      return dosendDef?res.end(rhs["STATICFILES"].get(this.entry)):notFound(res,req.url)
     })
-    server.listen(port,host,()=>console.log(`Server ${this.name} is running at http://${host}:${port}/`))
-    return server
+    server.listen(this.port,this.host,()=>console.log(`Server ${this.name} is running at http://${this.host}:${this.port}/`))
+    return this.server = server
   }
 }

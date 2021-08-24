@@ -1,10 +1,12 @@
 import SQ from "sequelize";
 const {Sequelize} = SQ
 export const Models = []
-export var DB = null;
+export {SQ}
 export function initDB(path){
-    DB = new Sequelize(path)
+    const seq = new Sequelize(path)
     for(const model of Models){
-        model.init(DB)
+        model.init(seq)
     }
+    seq.sync({alter:true})
+    return seq
 }
